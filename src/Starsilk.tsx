@@ -220,19 +220,33 @@ const Starsilk: React.FC = () => {
         ctx.lineWidth = 3.5;
         ctx.stroke();
 
+        // Barcode gaps and clusters
+        // Add a strong time component multiplied by drift speed moving left to right
+        const driftSpeed = time * 0.005;
+        const barcodeNoise = Math.sin(progress * 1200 - driftSpeed * 2) + Math.sin(progress * 2500 - driftSpeed * 4) * 0.5;
+
+        // True gaps in the barcode where no line is drawn
+        if (barcodeNoise < -0.6) {
+          continue;
+        }
+
+        // Color shifting along the length of the ribbon instead of based on twist
+        const colorWave = Math.sin(progress * 8 - driftSpeed * 0.1);
+        const colorRatio = Math.max(0, colorWave * 0.5 + 0.5); // 0 to 1
+
         // 2. Barcode clusters logic
-        // We generate "bands" that cluster the bright striations together using stepped noise
-        const sliceNoise = Math.sin(progress * 1500) + Math.cos(progress * 2800 + time * 0.003);
+        // Evaluate the noise moving rapidly "forward" down the spline
+        const sliceNoise = Math.sin(progress * 1500 - driftSpeed * 3) + Math.cos(progress * 2800 - driftSpeed * 5);
 
         // Inside a bright cluster/band
         if (sliceNoise > 0.0) {
-          // Randomly pick pure bright white, bright cyan, or medium cyan for each line in the cluster
-          const lineIntensity = Math.random();
-
           // Keep the bright interior slightly narrower than the blue edge
           const coreWidth = finalWidth * 0.92;
           const coreLeft = { x: p.x + normal.x * coreWidth, y: p.y + normal.y * coreWidth };
           const coreRight = { x: p.x - normal.x * coreWidth, y: p.y - normal.y * coreWidth };
+
+          // Randomly pick pure bright white, bright cyan, or medium cyan for each line in the cluster
+          const lineIntensity = Math.random();
 
           if (lineIntensity > 0.8) {
             // Searing bright white/cyan core line
