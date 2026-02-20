@@ -51,6 +51,8 @@ interface Config {
   starFlickerSpeed: number;
   enableSun: boolean;
   silkLuminosity: number;
+  silkSpeed: number;
+  variableSpeed: boolean;
 }
 
 interface Particle {
@@ -173,6 +175,8 @@ interface SilkStream {
   nodes: SilkNode[];
   colorPhase: number;
   surgeTime: number;
+  speedMultiplier: number;
+  localTime: number;
 }
 
 interface Star {
@@ -203,12 +207,14 @@ const Starsilk: React.FC = () => {
   const [starFlickerSpeed, setStarFlickerSpeed] = useState(50);
   const [enableSun, setEnableSun] = useState(true);
   const [silkLuminosity, setSilkLuminosity] = useState(100);
+  const [silkSpeed, setSilkSpeed] = useState(50);
+  const [variableSpeed, setVariableSpeed] = useState(false);
 
   const [menuVisible, setMenuVisible] = useState(true);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const configRef = useRef<any>(null);
-  configRef.current = { numStreams, startX, startY, endX, endY, layoutMode, effectMode, audioReactive, enableStars, starDensity, starLuminosity, starFlickerSpeed, enableSun, silkLuminosity };
+  configRef.current = { numStreams, startX, startY, endX, endY, layoutMode, effectMode, audioReactive, enableStars, starDensity, starLuminosity, starFlickerSpeed, enableSun, silkLuminosity, silkSpeed, variableSpeed };
 
   const initNodesRef = useRef<() => void>();
   const initStarsRef = useRef<() => void>();
@@ -348,7 +354,13 @@ const Starsilk: React.FC = () => {
 
           nodes.push(new SilkNode(x, y, phaseOffsetX, phaseOffsetY, s));
         }
-        streams.push({ nodes, colorPhase, surgeTime });
+        streams.push({
+          nodes,
+          colorPhase,
+          surgeTime,
+          speedMultiplier: 0.5 + Math.random() * 1.5, // 0.5x to 2.0x
+          localTime: Math.random() * 10000
+        });
       }
     };
     initNodesRef.current = initNodes;
@@ -463,9 +475,16 @@ const Starsilk: React.FC = () => {
         audioSimOffset = 0;
       }
 
+      // Global increment based on slider
+      const globalSpeedFactor = cfg.silkSpeed / 50;
+
       // Render Streams
       streams.forEach((stream, sIdx) => {
-        stream.nodes.forEach((node, i) => node.update(time, i, mouseX, mouseY, cfg, audioSimOffset));
+        const strandMultiplier = cfg.variableSpeed ? stream.speedMultiplier : 1.0;
+        stream.localTime += 16 * globalSpeedFactor * strandMultiplier;
+        const sTime = stream.localTime;
+
+        stream.nodes.forEach((node, i) => node.update(sTime, i, mouseX, mouseY, cfg, audioSimOffset));
 
         const points: Vec2[] = [];
         const segmentsPerNode = 10;
@@ -485,10 +504,10 @@ const Starsilk: React.FC = () => {
         // Handle Surges
         let isSurging = false;
         if (cfg.effectMode === 'surges') {
-          if (time > stream.surgeTime) {
+          if (sTime > stream.surgeTime) {
             isSurging = true;
-            if (time > stream.surgeTime + 800) {
-              stream.surgeTime = time + 2000 + Math.random() * 8000;
+            if (sTime > stream.surgeTime + 800) {
+              stream.surgeTime = sTime + 2000 + Math.random() * 8000;
             }
           }
         }
@@ -503,14 +522,14 @@ const Starsilk: React.FC = () => {
 
           const progress = i / points.length;
 
-          let driftSpeed = time * (cfg.layoutMode === 'river' ? 0.001 : 0.005);
+          let driftSpeed = sTime * (cfg.layoutMode === 'river' ? 0.001 : 0.005);
           if (isSurging) driftSpeed *= 3; // Surge speeds up the data flow
 
           let finalWidth = 45 - (streams.length * 2);
           if (cfg.layoutMode === 'river') finalWidth = 80;
           if (finalWidth < 10) finalWidth = 10;
 
-          const twist = Math.sin(progress * Math.PI * 6 - time * 0.001 + stream.colorPhase);
+          const twist = Math.sin(progress * Math.PI * 6 - sTime * 0.001 + stream.colorPhase);
           finalWidth = finalWidth * (0.85 + 0.15 * Math.abs(twist));
 
           // Optional DNA widening
@@ -705,6 +724,16 @@ const Starsilk: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
           <label style={{ fontSize: '0.85rem' }}>Silk Luminosity: {silkLuminosity}</label>
           <input type="range" min="10" max="300" value={silkLuminosity} onChange={e => setSilkLuminosity(parseInt(e.target.value))} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '0.85rem' }}>Global Flow Speed: {silkSpeed}</label>
+          <input type="range" min="0" max="250" value={silkSpeed} onChange={e => setSilkSpeed(parseInt(e.target.value))} />
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={variableSpeed} onChange={e => setVariableSpeed(e.target.checked)} />
+            Variable Per-Strand Variance
+          </label>
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
