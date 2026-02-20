@@ -36,6 +36,12 @@ const catmullRom = (p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: number): Vec2 => 
 type LayoutMode = 'default' | 'tree' | 'convergence' | 'dna' | 'river';
 type EffectMode = 'default' | 'vortex' | 'surges' | 'gravity' | 'particles';
 
+interface StreamConfig {
+  speed: number;
+  width: number;
+  luminosity: number;
+}
+
 interface Config {
   numStreams: number;
   startX: number;
@@ -53,6 +59,7 @@ interface Config {
   silkLuminosity: number;
   silkSpeed: number;
   variableSpeed: boolean;
+  streamConfigs: StreamConfig[];
 }
 
 interface Particle {
@@ -210,11 +217,25 @@ const Starsilk: React.FC = () => {
   const [silkSpeed, setSilkSpeed] = useState(50);
   const [variableSpeed, setVariableSpeed] = useState(false);
 
+  // Per-stream configurations
+  const [streamConfigs, setStreamConfigs] = useState<StreamConfig[]>(
+    Array.from({ length: 15 }, () => ({ speed: 100, width: 100, luminosity: 100 }))
+  );
+  const [selectedStream, setSelectedStream] = useState<number>(-1);
+
+  const updateStreamConfig = (index: number, key: keyof StreamConfig, value: number) => {
+    setStreamConfigs(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [key]: value };
+      return next;
+    });
+  };
+
   const [menuVisible, setMenuVisible] = useState(true);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const configRef = useRef<any>(null);
-  configRef.current = { numStreams, startX, startY, endX, endY, layoutMode, effectMode, audioReactive, enableStars, starDensity, starLuminosity, starFlickerSpeed, enableSun, silkLuminosity, silkSpeed, variableSpeed };
+  configRef.current = { numStreams, startX, startY, endX, endY, layoutMode, effectMode, audioReactive, enableStars, starDensity, starLuminosity, starFlickerSpeed, enableSun, silkLuminosity, silkSpeed, variableSpeed, streamConfigs };
 
   const initNodesRef = useRef<() => void>();
   const initStarsRef = useRef<() => void>();
@@ -480,8 +501,10 @@ const Starsilk: React.FC = () => {
 
       // Render Streams
       streams.forEach((stream, sIdx) => {
+        const streamCfg = cfg.streamConfigs[sIdx] || { speed: 100, width: 100, luminosity: 100 };
         const strandMultiplier = cfg.variableSpeed ? stream.speedMultiplier : 1.0;
-        stream.localTime += 16 * globalSpeedFactor * strandMultiplier;
+        const userSpeedMultiplier = streamCfg.speed / 100;
+        stream.localTime += 16 * globalSpeedFactor * strandMultiplier * userSpeedMultiplier;
         const sTime = stream.localTime;
 
         stream.nodes.forEach((node, i) => node.update(sTime, i, mouseX, mouseY, cfg, audioSimOffset));
@@ -532,6 +555,10 @@ const Starsilk: React.FC = () => {
           const twist = Math.sin(progress * Math.PI * 6 - sTime * 0.001 + stream.colorPhase);
           finalWidth = finalWidth * (0.85 + 0.15 * Math.abs(twist));
 
+          // User-configured manual width multiplier per-strand
+          const userWidthMultiplier = streamCfg.width / 100;
+          finalWidth *= userWidthMultiplier;
+
           // Optional DNA widening
           if (cfg.layoutMode === 'dna') finalWidth = 20;
 
@@ -544,6 +571,10 @@ const Starsilk: React.FC = () => {
 
           // Allow user to manually overdrive luminosity
           baseAlphaFactor *= (cfg.silkLuminosity / 100);
+
+          // Hand-tuned variable luminosity per strand
+          const userLumMultiplier = streamCfg.luminosity / 100;
+          baseAlphaFactor *= userLumMultiplier;
 
           ctx.beginPath();
           ctx.moveTo(pLeft.x, pLeft.y);
@@ -718,7 +749,43 @@ const Starsilk: React.FC = () => {
         {/* Existing Controls */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
           <label style={{ fontSize: '0.85rem' }}>Stream Threads: {numStreams}</label>
-          <input type="range" min="1" max="15" value={numStreams} onChange={e => setNumStreams(parseInt(e.target.value))} />
+          <input type="range" min="1" max="15" value={numStreams} onChange={e => {
+            const val = parseInt(e.target.value);
+            setNumStreams(val);
+            if (selectedStream >= val) setSelectedStream(-1);
+          }} />
+        </div>
+
+        {/* Per-Stream Configuration */}
+        <div style={{ backgroundColor: 'rgba(0, 150, 255, 0.1)', padding: '10px', borderRadius: '4px', border: '1px solid rgba(0, 150, 255, 0.2)' }}>
+          <label style={{ fontSize: '0.85rem', color: '#00c8ff' }}>Tune Specific Stream:</label>
+          <select
+            value={selectedStream}
+            onChange={e => setSelectedStream(parseInt(e.target.value))}
+            style={{ width: '100%', padding: '5px', marginTop: '5px', marginBottom: '10px', backgroundColor: '#222', color: '#fff', border: '1px solid #444' }}
+          >
+            <option value={-1}>None</option>
+            {Array.from({ length: numStreams }).map((_, i) => (
+              <option key={i} value={i}>Stream Thread #{i + 1}</option>
+            ))}
+          </select>
+
+          {selectedStream !== -1 && streamConfigs[selectedStream] && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <label style={{ fontSize: '0.75rem', color: '#ccc' }}>Speed Multiplier: {streamConfigs[selectedStream].speed}%</label>
+                <input type="range" min="0" max="300" value={streamConfigs[selectedStream].speed} onChange={e => updateStreamConfig(selectedStream, 'speed', parseInt(e.target.value))} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <label style={{ fontSize: '0.75rem', color: '#ccc' }}>Width Multiplier: {streamConfigs[selectedStream].width}%</label>
+                <input type="range" min="10" max="300" value={streamConfigs[selectedStream].width} onChange={e => updateStreamConfig(selectedStream, 'width', parseInt(e.target.value))} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <label style={{ fontSize: '0.75rem', color: '#ccc' }}>Luminosity Multiplier: {streamConfigs[selectedStream].luminosity}%</label>
+                <input type="range" min="0" max="300" value={streamConfigs[selectedStream].luminosity} onChange={e => updateStreamConfig(selectedStream, 'luminosity', parseInt(e.target.value))} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
